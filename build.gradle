@@ -1,6 +1,8 @@
 buildscript {
 	ext.kotlinVersion = '1.3.61'
 	repositories {
+		mavenCentral()
+		maven { url 'https://plugins.gradle.org/m2' }
 		maven { url 'https://repo.spring.io/plugins-release' }
 	}
 	dependencies {
@@ -26,7 +28,6 @@ plugins {
 description = 'Spring AMQP'
 
 ext {
-	isTravisBuild = System.getenv().get('TRAVIS') == 'true'
 	linkHomepage = 'https://projects.spring.io/spring-amqp'
 	linkCi       = 'https://build.spring.io/browse/AMQP'
 	linkIssue    = 'https://jira.spring.io/browse/AMQP'
@@ -38,26 +39,26 @@ ext {
 	modifiedFiles =
 			files(grgit.status().unstaged.modified).filter{ f -> f.name.endsWith('.java') || f.name.endsWith('.kt') }
 
-	assertjVersion = '3.18.0'
-	assertkVersion = '0.20'
+	assertjVersion = '3.18.1'
+	assertkVersion = '0.23'
 	awaitilityVersion = '4.0.3'
 	commonsHttpClientVersion = '4.5.13'
 	commonsPoolVersion = '2.9.0'
 	googleJsr305Version = '3.0.2'
 	hamcrestVersion = '2.2'
-	jacksonVersion = '2.11.3'
+	jacksonBomVersion = '2.11.3'
 	jaywayJsonPathVersion = '2.4.0'
 	junit4Version = '4.13.1'
 	junitJupiterVersion = '5.7.0'
 	log4jVersion = '2.13.3'
 	logbackVersion = '1.2.3'
-	micrometerVersion = '1.5.7'
-	mockitoVersion = '3.6.0'
+	micrometerVersion = '1.5.8'
+	mockitoVersion = '3.6.28'
 	rabbitmqVersion = project.hasProperty('rabbitmqVersion') ? project.rabbitmqVersion : '5.9.0'
 	rabbitmqHttpClientVersion = '3.8.0.RELEASE'
-	reactorVersion = '2020.0.0'
-	springDataCommonsVersion = '2.4.1'
-	springVersion = project.hasProperty('springVersion') ? project.springVersion : '5.3.1'
+	reactorVersion = '2020.0.2'
+	springDataCommonsVersion = '2.4.2'
+	springVersion = project.hasProperty('springVersion') ? project.springVersion : '5.3.2'
 	springRetryVersion = '1.3.0'
 }
 
@@ -81,7 +82,7 @@ allprojects {
 		}
 
 		imports {
-			mavenBom "com.fasterxml.jackson:jackson-bom:$jacksonVersion"
+			mavenBom "com.fasterxml.jackson:jackson-bom:$jacksonBomVersion"
 			mavenBom "org.junit:junit-bom:$junitJupiterVersion"
 			mavenBom "org.springframework:spring-framework-bom:$springVersion"
 			mavenBom "io.projectreactor:reactor-bom:$reactorVersion"
@@ -90,7 +91,8 @@ allprojects {
 	}
 
 	repositories {
-		maven { url 'https://repo.spring.io/libs-release' }
+		mavenCentral()
+		maven { url 'https://repo.spring.io/libs-milestone' }
 		if (version.endsWith('-SNAPSHOT')) {
 			maven { url 'https://repo.spring.io/libs-snapshot' }
 		}
@@ -202,7 +204,7 @@ subprojects { subproject ->
 	}
 
 	task updateCopyrights {
-		onlyIf { !System.getenv('TRAVIS') && !System.getenv('bamboo_buildKey') }
+		onlyIf { !System.getenv('GITHUB_ACTION') && !System.getenv('bamboo_buildKey') }
 		inputs.files(modifiedFiles.filter { f -> f.path.contains(subproject.name) })
 		outputs.dir('build/classes')
 
@@ -235,10 +237,6 @@ subprojects { subproject ->
 	test {
 		jacoco {
 			destinationFile = file("$buildDir/jacoco.exec")
-		}
-		if (isTravisBuild) {
-			// restrict memory usage, so tests don't fail with exit code 137 on travis
-			maxHeapSize = '256m'
 		}
 	}
 

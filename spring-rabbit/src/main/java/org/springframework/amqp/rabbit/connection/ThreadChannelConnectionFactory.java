@@ -27,9 +27,11 @@ import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.rabbit.support.RabbitExceptionTranslator;
 import org.springframework.aop.framework.ProxyFactory;
 import org.springframework.aop.support.NameMatchMethodPointcutAdvisor;
+import org.springframework.lang.Nullable;
 
 import com.rabbitmq.client.Channel;
 import com.rabbitmq.client.ConnectionFactory;
+import com.rabbitmq.client.ShutdownListener;
 
 /**
  * A very simple connection factory that caches a channel per thread. Users are
@@ -37,15 +39,16 @@ import com.rabbitmq.client.ConnectionFactory;
  * {@link #closeThreadChannel()}.
  *
  * @author Gary Russell
- *
  * @since 2.3
  *
  */
-public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
+public class ThreadChannelConnectionFactory extends AbstractConnectionFactory implements ShutdownListener {
 
 	private volatile ConnectionWrapper connection;
 
 	private boolean simplePublisherConfirms;
+
+	private boolean defaultPublisherFactory = true;
 
 	/**
 	 * Construct an instance.
@@ -65,6 +68,15 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 		if (!isPublisher) {
 			setPublisherConnectionFactory(new ThreadChannelConnectionFactory(rabbitConnectionFactory, true));
 		}
+		else {
+			this.defaultPublisherFactory = false;
+		}
+	}
+
+	@Override
+	public void setPublisherConnectionFactory(@Nullable AbstractConnectionFactory publisherConnectionFactory) {
+		super.setPublisherConnectionFactory(publisherConnectionFactory);
+		this.defaultPublisherFactory = false;
 	}
 
 	@Override
@@ -78,6 +90,19 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 	 */
 	public void setSimplePublisherConfirms(boolean simplePublisherConfirms) {
 		this.simplePublisherConfirms = simplePublisherConfirms;
+		if (this.defaultPublisherFactory) {
+			((ThreadChannelConnectionFactory) getPublisherConnectionFactory())
+				.setSimplePublisherConfirms(simplePublisherConfirms); // NOSONAR
+		}
+	}
+
+	@Override
+	public void addConnectionListener(ConnectionListener listener) {
+		super.addConnectionListener(listener); // handles publishing sub-factory
+		// If the connection is already alive we assume that the new listener wants to be notified
+		if (this.connection != null && this.connection.isOpen()) {
+			listener.onCreate(this.connection);
+		}
 	}
 
 	@Override
@@ -85,6 +110,7 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 		if (this.connection == null || !this.connection.isOpen()) {
 			Connection bareConnection = createBareConnection(); // NOSONAR - see destroy()
 			this.connection = new ConnectionWrapper(bareConnection.getDelegate(), getCloseTimeout());
+			getConnectionListener().onCreate(this.connection);
 		}
 		return this.connection;
 	}
@@ -97,6 +123,16 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 		if (connection2 != null) {
 			connection2.closeThreadChannel();
 		}
+	}
+
+	/**
+	 * Close the connection(s). This will impact any in-process operations. New
+	 * connection(s) will be created on demand after this method returns. This might be
+	 * used to force a reconnect to the primary broker after failing over to a secondary
+	 * broker.
+	 */
+	public void resetConnection() {
+		destroy();
 	}
 
 	@Override
@@ -148,6 +184,7 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 					this.channels.set(channel);
 				}
 			}
+			getChannelListener().onCreate(channel, transactional);
 			return channel;
 		}
 
@@ -234,6 +271,7 @@ public class ThreadChannelConnectionFactory extends AbstractConnectionFactory {
 
 		void forceClose() {
 			super.close();
+			getConnectionListener().onClose(this);
 		}
 
 	}
